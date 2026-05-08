@@ -1,10 +1,19 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+import logging
+
 import click
 import pandas as pd
 from sqlalchemy import create_engine
 from tqdm.auto import tqdm
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 dtype = {
     "VendorID": "Int64",
@@ -47,10 +56,14 @@ def run(
     prefix = "https://github.com/DataTalksClub/nyc-tlc-data/releases/download/yellow"
     url = f"{prefix}/yellow_tripdata_{year}-{month:02d}.csv.gz"
 
+    logger.info(
+        "Connecting to PostgreSQL at %s:%s, database: %s", pg_host, pg_port, pg_db
+    )
     engine = create_engine(
         f"postgresql+psycopg://{pg_user}:{pg_pass}@{pg_host}:{pg_port}/{pg_db}"
     )
 
+    logger.info("Fetching data from: %s", url)
     df_iter = pd.read_csv(
         url,
         dtype=dtype,
@@ -60,13 +73,21 @@ def run(
     )
 
     first = True
+    total_rows = 0
 
     for df_chunk in tqdm(df_iter):
         if first:
+            logger.info("Creating table '%s' (replacing if exists)", target_table)
             df_chunk.head(0).to_sql(name=target_table, con=engine, if_exists="replace")
             first = False
 
         df_chunk.to_sql(name=target_table, con=engine, if_exists="append")
+        total_rows += len(df_chunk)
+        logger.info(
+            "Inserted chunk: %d rows (total so far: %d)", len(df_chunk), total_rows
+        )
+
+    logger.info("Done. Total rows inserted: %d", total_rows)
 
 
 if __name__ == "__main__":
